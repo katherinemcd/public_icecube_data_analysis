@@ -1,208 +1,285 @@
+import time
+import scipy.interpolate
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.interpolate
-import multiprocessing as mp
-#from multiprocessing import Pool
-import copy
+from multiprocessing import Pool
 from iminuit import Minuit
-from pprint import pprint # we use this to pretty print some stuff later
-import datetime 
-import cProfile
-import pstats
+
+
+def Si_likelihood(N, cart_s):
+    """
+    Calculates the signal PDF at a given
+    point in the sky.
+
+    Parameters
+    ----------
+    N : int
+        The total number of data events.
+    cart_s : array_like
+        The cartesian position on sky that is being tested.
+    """
+
+    norm_i = np.sqrt(np.sum(np.power(cart_i, 2.0), axis=0))
+    norm_s = np.sqrt(np.sum(np.power(cart_s, 2.0)))
+    great_dists = np.dot(cart_s, cart_i)
+    great_dists /= norm_i*norm_s
+    great_dists = np.arccos(great_dists)
+
+    S_i = 1.0 / (2.0 * np.pi * data_sigmas * data_sigmas)
+    S_i *= np.exp(-0.5 * np.power(great_dists / data_sigmas, 2.0))
+
+    return S_i
+
+
+def calculate_likelihood(n_s, N, S_i, B_i):
+    """
+    Calculates the test statistic for a given
+    number of clustered neutrinos (n_s) and
+    given signal pdf (S_i), background pdf (B_i),
+    and the total number of events (N).
+    """
+    if(n_s < 0):
+        return 0.0
+    else:
+        return np.sum(np.log(n_s/N * S_i + (1.0 - n_s / N) * B_i))
+
+
+def load_background(file_name, zenith_angles):
+    data_bg = np.load(file_name, allow_pickle=True)
+    f_bg = scipy.interpolate.interp1d(data_bg['x'],
+                                      data_bg['y'],
+                                      kind='cubic',
+                                      bounds_error=False,
+                                      fill_value="extrapolate")
+    B_i = f_bg(zenith_angles)
+    return B_i
 
 
 def load_icecube_data(file_name):
-    
-    # Load up the IceCube data
     icecube_data = np.load(file_name, allow_pickle=True)
 
     data_sigmas = np.array(icecube_data["data_sigmas"])
     data_ra = np.array(icecube_data["data_ra"])
     data_dec = np.array(icecube_data["data_dec"])
 
-    # get rid of entries that will cause trouble in probability calculations
-    # and things too close to the poles
-    selection_region = np.logical_and(data_sigmas != 0.0, np.abs(data_dec) < np.deg2rad(87.0))
-    data_ra = data_ra[selection_region]
-    data_dec = data_dec[selection_region]
-    data_sigmas = data_sigmas[selection_region]
+    allowed_entries = data_sigmas != 0.0
+    data_ra = data_ra[allowed_entries]
+    data_dec = data_dec[allowed_entries]
+    data_sigmas = data_sigmas[allowed_entries]
 
     return data_ra, data_dec, data_sigmas
 
-def prepare_skymap_coordinates(step_size):
-    every_pt_dec = np.arange(-np.pi/2.0, np.pi/2.0, step_size)
-    every_pt_ra  = np.arange(0.0, 2.0 * np.pi, step_size)
 
-    dec_num = len(every_pt_dec)
-    ra_num = len(every_pt_ra)
-    
-    every_pt = np.ones((ra_num, dec_num, 2))
-    
-    for iX in range(len(every_pt[:,0,0])):
-        for iY in range(len(every_pt[0,:,0])):
-            every_pt[iX][iY] = [every_pt_ra[iX], every_pt_dec[iY]]
+def big_job_submission(N, B_i, cart_s, i_source):
 
-    return every_pt
-            
-def load_background_map(file_name, every_pt):
-    data_bg = np.load(file_name, allow_pickle=True)
-    data_bg_x = data_bg['x']
-    data_bg_y = data_bg['y']
-    f_bg = scipy.interpolate.interp1d(data_bg_x, data_bg_y, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    
-    B_i = f_bg(every_pt[:,:,1])
-    return B_i
-    
-def Si_likelihood(N, cart_x_i_, cart_y_i_, cart_z_i_, cart_x_s_, cart_y_s_, cart_z_s_, sigma_i):
+    S_i = Si_likelihood(N, cart_s)
 
-    norm_i = np.sqrt(np.power(cart_x_i_, 2.0) + np.power(cart_y_i_, 2.0) + np.power(cart_z_i_, 2.0))
-    norm_s = np.sqrt(np.power(cart_x_s_, 2.0) + np.power(cart_y_s_, 2.0) + np.power(cart_z_s_, 2.0))
-
-    dists_great = cart_x_i_ * cart_x_s_ + cart_y_i_ * cart_y_s_ + cart_z_i_ * cart_z_s_
-    dists_great /= norm_i * norm_s
-
-    dists_great = np.arccos(dists_great)
-
-    S_i = 1.0 / (2.0 * np.pi * sigma_i * sigma_i)
-    S_i *= np.exp(-0.5* np.power(dists_great / sigma_i, 2.0))
-
-    return S_i
-
-def calculate_likelihood(N, S_i, B_i):
     def _calculate_likelihood(n_s):
-        return -calculate_likelihood_given_parameters(n_s, N, S_i, B_i)
-    return _calculate_likelihood
+        return -calculate_likelihood(n_s, N, S_i, B_i)
 
-def calculate_likelihood_given_parameters(n_s, N, S_i, B_i):
-    return np.sum(np.log(n_s/N * S_i + (1.0 - n_s / N) * B_i))
-
-def big_job_submission(N, B_i, cart_x_i, cart_y_i, cart_z_i, data_sigmas, cart_x_s, cart_y_s, cart_z_s, iJob, pixel_x, pixel_y):
-    
-    pixels_Si = Si_likelihood(N, cart_x_i, cart_y_i, cart_z_i, cart_x_s[pixel_x][pixel_y], cart_y_s[pixel_x][pixel_y], cart_z_s[pixel_x][pixel_y], data_sigmas)
-    pixels_Bi = B_i[pixel_x][pixel_y]
-
-    m = Minuit(calculate_likelihood(N, pixels_Si, pixels_Bi),
-               n_s = 0.0)
+    m = Minuit(_calculate_likelihood,
+               n_s=0.0)
+    m.errordef = Minuit.LEAST_SQUARES
     m.limits = [(0, N)]
-    m.migrad() # finds minimum of least_squares function
-    
-    n_s = m.values[0] # fitted value of n_s for this spot
-    del_ln_L = (calculate_likelihood_given_parameters(n_s, N, pixels_Si, pixels_Bi) - calculate_likelihood_given_parameters(0.0, N, pixels_Si, pixels_Bi))
 
-    #if(iJob % 5 == 0):
-    print("Done with", iJob, pixel_x, pixel_y, "n_s=", n_s)
+    m.migrad()  # finds minimum of least_squares function
+
+    n_s = m.values[0]  # fitted value of n_s for this spot
+    del_ln_L = (calculate_likelihood(n_s, N, S_i, B_i) - calculate_likelihood(0.0, N, S_i, B_i))
+
+    if(i_source % 1000 == 0):
+        print("%i) \t n_s = \t %f" % (i_source, n_s))
 
     return n_s, del_ln_L
 
 
+def parallel_with_start_stop(N, B_i, cart_s, i_job_start, i_job_stop):
+    results = np.zeros((i_job_stop - i_job_start, 2))
+    for i in range(len(B_i)):
+        results[i] = big_job_submission(N,
+                                        B_i[i],
+                                        cart_s[:, i],
+                                        i_job_start + i)
+    return results
+
+
+def prepare_skymap_coordinates(step_size):
+    """
+    Returns the RA and Dec for each point, and a map with the index
+    """
+
+    ra_sweep = np.arange(0.0, 2.0 * np.pi, step_size)
+    dec_sweep = np.arange(-np.pi/2.0, np.pi/2.0, step_size)
+
+    ra_len = len(ra_sweep)
+    dec_len = len(dec_sweep)
+
+    total_pts = dec_len * ra_len
+
+    index_map = np.zeros((total_pts, 2), dtype='int')
+
+    ras = np.zeros(total_pts)
+    decs = np.zeros(total_pts)
+
+    i_source = 0
+    for iX in range(ra_len):
+        for iY in range(dec_len):
+            index_map[i_source] = [iX, iY]
+            ras[i_source] = ra_sweep[iX]
+            decs[i_source] = dec_sweep[iY]
+            i_source += 1
+
+    return ras, decs, index_map, ra_len, dec_len
+
+
 def main():
 
-    step_size = np.deg2rad(20.0) # 0.2 deg
-    
-    data_ra, data_dec, data_sigmas = load_icecube_data("./processed_data/output_icecube_data.npz")    
-    
-    N = len(data_sigmas) # number of total events
+    use_parallel = True
+    n_cpu = 20
+    # chunk_size = 250
+    step_size = np.deg2rad(10.0)  # Degrees step on the sky
 
-    every_pt = prepare_skymap_coordinates(step_size) # this is the coordinate of each point on the sky we are checking
+    global data_sigmas
+    data_ra, data_dec, data_sigmas = load_icecube_data("./output_icecube_data.npz")
+    data_sin_dec = np.sin(data_dec)
+
+    #  This is the coordinate of each point on the sky we are checking.
+    cat_ra, cat_dec, index_map, ra_len, dec_len = prepare_skymap_coordinates(step_size)
+    cat_sin_dec = np.sin(cat_dec)
+
+    N = len(data_sigmas)  # Number of total events
+    N_sky_pts = len(cat_ra)
+
+    print("Number of IceCube events: \t %i" % N)
+    print("Number of skypoints to calc: \t %i" % N_sky_pts)
 
     # loading up the background probability
-    B_i = load_background_map("processed_data/output_icecube_background_count.npz", every_pt)
-    
+    B_i = load_background("./output_icecube_background_count.npz",
+                          cat_sin_dec)
+
     # Preprocess the data to speed up calls to Si_likelihood
     # In the equations in the paper, these are i indices, the index of data
-    x_i_ = np.array(tuple(zip(data_ra, data_dec)))
+    cart_x_i = np.sin(np.pi/2.0 - data_dec) * np.cos(data_ra)
+    cart_y_i = np.sin(np.pi/2.0 - data_dec) * np.sin(data_ra)
+    cart_z_i = np.cos(np.pi/2.0 - data_dec)
+
+    global cart_i
+    cart_i = np.array([cart_x_i, cart_y_i, cart_z_i])
 
     # In the equations in the paper, these are s indices, the index of source direction
-    x_s_ = copy.deepcopy(every_pt)
+    cart_x_s = np.sin(np.pi/2.0 - cat_dec) * np.cos(cat_ra)
+    cart_y_s = np.sin(np.pi/2.0 - cat_dec) * np.sin(cat_ra)
+    cart_z_s = np.cos(np.pi/2.0 - cat_dec)
+    cart_s = np.array([cart_x_s, cart_y_s, cart_z_s])
 
-    # convert to cartesian from angular to make distance calculations easier (but less accurate)
-    cart_x_i = np.sin(np.pi/2.0 - x_i_[:,1]) * np.cos(x_i_[:,0])
-    cart_y_i = np.sin(np.pi/2.0 - x_i_[:,1]) * np.sin(x_i_[:,0])
-    cart_z_i = np.cos(np.pi/2.0 - x_i_[:,1])
+    results = []
 
-    cart_x_s = np.sin(np.pi/2.0 - x_s_[:,:,1]) * np.cos(x_s_[:,:,0])
-    cart_y_s = np.sin(np.pi/2.0 - x_s_[:,:,1]) * np.sin(x_s_[:,:,0])
-    cart_z_s = np.cos(np.pi/2.0 - x_s_[:,:,1])
+    start_time = time.time()
 
-    #pool = Pool(10)
-    parallel_results = []
+    if(use_parallel):
+        pool = Pool(n_cpu)
 
-    print(every_pt[:,:,0].shape)
-    
-    data_map = np.zeros(every_pt[:,:,0].shape)
-    n_s_map = np.zeros(every_pt[:,:,0].shape)
+        args_for_multiprocessing = [(N, B_i[i_source], np.array(cart_s[:, i_source]), i_source) for i_source in range(N_sky_pts)]
+        results = pool.starmap(big_job_submission,
+                               args_for_multiprocessing)
 
-    i_to_ix_map = np.zeros(len(data_map.flatten()))
-    i_to_iy_map = np.zeros(len(data_map.flatten()))
-    running_i = 0
-    for iX in range(len(every_pt[:,0,0])):
-        for iY in range(len(every_pt[0,:,0])):
+        '''
+        # so now I have to figure out a way to make it start and stop and pass things along
+        args_for_multiprocessing = []
+        for start_i_source in range(0, N_sky_pts - chunk_size, chunk_size):
+            args_for_multiprocessing += [(N,
+                                          B_i[start_i_source: start_i_source + chunk_size],
+                                          cart_s[:, start_i_source: start_i_source + chunk_size],
+                                          start_i_source,
+                                          start_i_source + chunk_size)]
+        args_for_multiprocessing += [(N,
+                                      B_i[start_i_source + chunk_size: -1],
+                                      cart_s[:, start_i_source + chunk_size: -1],
+                                      start_i_source + chunk_size,
+                                      len(B_i)-1)]
 
-            if(np.abs(np.rad2deg(every_pt[0,:,0][iY])) > 87.0):
-                continue
+        results = pool.starmap(parallel_with_start_stop,
+                               args_for_multiprocessing)
 
-            i_to_ix_map[running_i] = iX
-            i_to_iy_map[running_i] = iY
-            #parallel_results += [pool.apply_async(big_job_submission, [N, B_i, cart_x_i, cart_y_i, cart_z_i, data_sigmas, cart_x_s, cart_y_s, cart_z_s, running_i, iX, iY])]
-            parallel_results += [big_job_submission(N, B_i, cart_x_i, cart_y_i, cart_z_i, data_sigmas, cart_x_s, cart_y_s, cart_z_s, running_i, iX, iY)]
-            running_i += 1
+        results = np.array(results)
+        results_reshape = np.zeros((N_sky_pts, 2))
+        i_source = 0
+        for results_ in results:
+            for j in range(len(results_)):
+                results_reshape[i_source] = results_[j]
+                i_source += 1
+        results = results_reshape
+        '''
 
-    for i in range(len(parallel_results)):
-        #ns, del_ln_L = parallel_results[i].get()
-        ns, del_ln_L = parallel_results[i]#.get()
-        n_s_map[int(i_to_ix_map[i])][int(i_to_iy_map[i])] = ns
-        if(ns >= 0.0):
-            data_map[int(i_to_ix_map[i])][int(i_to_iy_map[i])] = del_ln_L
-        else:
-            data_map[int(i_to_ix_map[i])][int(i_to_iy_map[i])] = -del_ln_L
+        pool.close()
+    else:
+        for i_source in range(N_sky_pts):
+            results += [big_job_submission(N,
+                                           B_i[i_source],
+                                           cart_s[:, i_source],
+                                           i_source)]
 
-    #pool.close()
+    end_time = time.time()
 
-    #if(save):
-    #    np.save("result_data/calculated_fit_likelihood_map_allsky.npy", data_map)
-    #    np.save("result_data/calculated_fit_ns_map_allsky.npy", n_s_map)
-    plt.figure()
-    plt.title("$\sqrt{2 \Delta \ln \mathcal{L}}$")
+    if(use_parallel):
+        print("Using parallel, time passed was: \t %f" % (end_time - start_time))
+    else:
+        print("Using nonparallel, time passed was: \t %f" % (end_time - start_time))
+
+    data_map = np.zeros((ra_len, dec_len))
+    n_s_map = np.zeros((ra_len, dec_len))
+
+    for i_source in range(N_sky_pts):
+        if(np.abs(np.rad2deg(cat_dec[i_source])) > 87.0):
+            continue
+
+        ns, del_ln_L = results[i_source]
+        i_ra, i_dec = index_map[i_source]
+        n_s_map[i_ra, i_dec] = ns
+        data_map[i_ra, i_dec] = del_ln_L
+
+    np.save("./calculated_fit_likelihood_map_allsky.npy", data_map)
+    np.save("./calculated_fit_ns_map_allsky.npy", n_s_map)
+
     data_map_pos = data_map[data_map > 0.0]
     data_map_neg = data_map[data_map < 0.0]
     data_map_zero = data_map[data_map == 0.0]
-    #plt.hist(np.append(np.sqrt(2.0 * data_map_pos.flatten()), -np.sqrt(2.0 * -data_map_neg.flatten())), range=(-6.0, 6.0), bins=120, log=True)
-    plt.hist(np.sqrt(2.0 * data_map_pos.flatten()), range=(-6.0, 6.0), bins=120, log=True)
-    plt.hist(-np.sqrt(2.0 * -data_map_neg.flatten()), range=(-6.0, 6.0), bins=120, log=True)
-    plt.hist(np.sqrt(2.0 * data_map_zero.flatten()), range=(-6.0, 6.0), bins=120, log=True)         
-    
+
     plt.figure()
-    plt.title("$n_s$")
-    plt.hist(n_s_map.flatten(), range=(-30.0, 30.0), bins=60, log=True)
-    
+    plt.hist(np.sqrt(2.0 * data_map_pos.flatten()),
+             range=(-6.0, 6.0), bins=120, log=True,
+             label="Positive TS")
+    plt.hist(-np.sqrt(2.0 * -data_map_neg.flatten()),
+             range=(-6.0, 6.0), bins=120, log=True,
+             label="Negative TS")
+    plt.hist(np.sqrt(2.0 * data_map_zero.flatten()),
+             range=(-6.0, 6.0), bins=120, log=True,
+             label="Zero TS")
+    plt.xlabel("$\sqrt{2 \Delta \ln \mathcal{L}}$")
+    plt.legend()
+    plt.grid()
+
+    plt.figure()
+    plt.hist(n_s_map.flatten(),
+             range=(-30.0, 30.0), bins=60, log=True)
+    plt.xlabel("$n_s$")
+    plt.grid()
+
     plt.figure()
     plt.title("$\sqrt{2 \Delta \ln \mathcal{L}}$")
-    #plt.imshow(np.sqrt(2.0 * np.abs(data_map)).transpose())
     plt.imshow(np.sqrt(2.0 * np.abs(data_map)).transpose())
-    
-    # Where are the zeros at.
-    data_map_zero = copy.deepcopy(data_map)
-    data_map_zero[data_map_zero == 0] = 1e10
-    plt.figure()
-    plt.imshow(data_map_zero.transpose())
-    
+    plt.xlabel("RA Index")
+    plt.ylabel("Dec Index")
+
     plt.figure()
     plt.title("$n_s$")
     plt.imshow(n_s_map.transpose())
-    
+    plt.xlabel("RA Index")
+    plt.ylabel("Dec Index")
+
     plt.show()
 
-    
-if __name__ == "__main__":
 
-    '''
-    profiler = cProfile.Profile()
-    profiler.enable()
-    main()
-    profiler.disable()
-    stats = pstats.Stats(profiler).sort_stats('cumtime')
-    stats.print_stats()
-    #cProfile.run('main()')
-    '''    
+if(__name__ == "__main__"):
 
     main()
