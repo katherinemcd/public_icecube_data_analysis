@@ -3,21 +3,23 @@ import scipy.interpolate
 import scipy.integrate
 import numpy as np
 
+
 def load_Aeff(input_file_names, output_file_name, alpha=2.5):
     
     data_E = np.array([])
-    data_cos_zenith = np.array([])
+    data_zenith = np.array([])
     data_Aeff = np.array([])
 
     for data_file in input_file_names:
-        data = np.genfromtxt(data_file, delimiter=" ", usecols = [0, 4, 15, 26, 33])
-
+        data = np.loadtxt(data_file)
+        
         data_E = np.append(data_E, (data[:, 0] + data[:, 1]) / 2.0)
-        data_cos_zenith = np.append(data_cos_zenith, (data[:, 2] + data[:, 3]) / 2.0)
+        data_zenith = np.append(data_zenith, (data[:, 2] + data[:, 3]) / 2.0)
         data_Aeff = np.append(data_Aeff, data[:, 4])
         
-    data_E = np.array(data_E) / 1000.0 # convert to TeV
-    data_cos_zenith = np.array(data_cos_zenith)
+
+    data_E = np.power(10.0, np.array(data_E)) / 1000.0  # convert to TeV
+    data_cos_zenith = np.cos(np.deg2rad(np.array(data_zenith)))
     data_Aeff = 10000.0 * np.array(data_Aeff) # convert to cm^2
 
     data_cos_zenith *= -1.0 # cos(theta) = - sin(Declination)
@@ -28,6 +30,7 @@ def load_Aeff(input_file_names, output_file_name, alpha=2.5):
     y_integrate_steps = np.zeros(len(unique_cos_zeniths))
 
     for i_unique_cos_zenith, unique_cos_zenith in enumerate(unique_cos_zeniths):
+
         cur_E_max = data_E[data_cos_zenith == unique_cos_zenith]
         cur_Aeff = data_Aeff[data_cos_zenith == unique_cos_zenith]
 
@@ -74,9 +77,9 @@ def load_Aeff(input_file_names, output_file_name, alpha=2.5):
 
 if(__name__ == "__main__"):
 
-    input_file_names = glob.glob("./data/*-TabulatedAeff.txt")
+    input_file_names = glob.glob("./data/icecube_10year_ps/irfs/*effectiveArea.csv")
     alpha = 2.5
 
-    output_file_name = "./processed_data/output_icecube_AffIntegrated_2010_%s.npz" % alpha
+    output_file_name = "./processed_data/output_icecube_AffIntegrated_%s.npz" % alpha
     
     f_Aeff_dec_integration = load_Aeff(input_file_names, output_file_name, alpha)
