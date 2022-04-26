@@ -40,7 +40,7 @@ def main():
     use_parallel = True
     n_cpu = 4
 
-    step_size = 5.0  # Degrees step on the sky
+    step_size = 10.0  # Degrees step on the sky
 
     sourcesearch_ = IceCubeAnalysis.SourceSearch("./processed_data/output_icecube_data.npz")
     sourcesearch_.load_background("./processed_data/output_icecube_background_count.npz")
