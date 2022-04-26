@@ -7,11 +7,11 @@ import copy
 
 if __name__ == "__main__":
 
-    likelihood_map = np.load("calculated_fit_likelihood_map_allsky.npy",
+    likelihood_map = np.load("./processed_data/calculated_fit_likelihood_map_allsky.npy",
                              allow_pickle=True)
     likelihood_map[likelihood_map <= 0.0] = 0.0
 
-    step_size = 0.8
+    step_size = 10.0
     every_pt_dec = np.arange(-90.0, 90, step_size)
     every_pt_ra  = np.arange(0.0, 360, step_size)
     dec_num = len(every_pt_dec)

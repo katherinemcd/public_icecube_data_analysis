@@ -13,15 +13,13 @@ def load_Aeff(input_file_names, output_file_name, alpha=2.5):
 
     df = pd.DataFrame()    
     for data_file in input_file_names:
-        df = pd.concat([df, pd.read_fwf(data_file, sep=" ")])    
+        df = pd.concat([df, pd.read_fwf(data_file, header=None, skiprows=1)])
+
+    data_E = (df[0].to_numpy() + df[1].to_numpy()) / 2
+    data_dec = (df[2].to_numpy() + df[3].to_numpy()) / 2
+    data_Aeff = df[4].to_numpy()
     
-    data_E = (df['E_min[GeV]'].to_numpy() + df['E_max[GeV]'].to_numpy()) / 2
-    data_cos_zenith = (df['cos(zenith)_min'].to_numpy() + df['cos(zenith)_max'].to_numpy()) / 2
-    data_Aeff = df['Aeff[m^2]'].to_numpy()
-    
-    data_E = data_E / 1000.0  # convert to TeV
-    data_Aeff = 10000.0 * data_Aeff # convert to cm^2
-    data_dec = np.rad2deg(np.arccos(data_cos_zenith) - np.pi / 2.0) # Convert cos zenith to declination
+    data_E = np.power(10.0, data_E) / 1000.0  # convert to TeV
 
     '''
     plt.figure()
@@ -108,7 +106,7 @@ def load_Aeff(input_file_names, output_file_name, alpha=2.5):
 
 if(__name__ == "__main__"):
 
-    input_file_names = glob.glob("./data/3year-data-release/*Aeff.txt")
+    input_file_names = glob.glob("./data/icecube_10year_ps/irfs/*effectiveArea.csv")
 
     for alpha in [2.0, 2.5]:
     
