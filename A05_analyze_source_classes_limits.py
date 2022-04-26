@@ -72,7 +72,7 @@ def main(source_class_names, alpha=2.0, weights_type='flat', use_parallel=False,
 
 if(__name__ == "__main__"):
 
-    source_class_names = ['FSRQ', 'bll', 'FSRQ', 'fsrq', 'BCU', 'bcu']
+    source_class_names = ['BLL', 'bll', 'FSRQ', 'fsrq', 'BCU', 'bcu']
     
     weights_types = ['flat', 'flux', 'dist']
     colors = ['orange', 'green', 'blue']
@@ -86,7 +86,7 @@ if(__name__ == "__main__"):
         
         for i_weights_type, weights_type in enumerate(weights_types):
             sweep_flux, sweep_ts, sweep_ts_each_source = main(source_class_names=source_class_names, alpha=alpha,                 
-                                                              weights_type=weights_type, use_parallel=True, var_index_cut=False)#18.48)
+                                                              weights_type=weights_type, use_parallel=True, var_index_cut=None)#18.48)
 
             plt.semilogx(np.array(sweep_flux)[sweep_ts < 1e3],
                          sweep_ts[sweep_ts < 1e3],
