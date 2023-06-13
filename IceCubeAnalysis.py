@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[2]:
 
 
 import numpy as np
@@ -378,7 +378,6 @@ class SourceClassSearch:
         cat_z = catelog_data["cat_z"]
         cat_var_index = catelog_data["cat_var_index"]
 
-        
         # Modify the non-blazar AGN catalog to match the paper
         cat_names = np.append(cat_names, ["Custom 3C 411"])
         cat_flux1000 = np.append(cat_flux1000, [3.5e-12 / 0.011636])
@@ -494,8 +493,6 @@ class SourceClassSearch:
         elif(weights_type == 'dist'):
             cat_flux_weights = 1.0 / np.power(self.cat_DL, 2.0)
             cat_flux_weights[self.cat_DL == -10.] = 0.0  # Missing entries have a weight of zero, so aren't calculated
-        elif(weights_type == "inv_flux"):
-            cat_flux_weights = 1/self.cat_flux1000
         else:
             print("Weights not known: %s" % weights)
             exit()
@@ -578,8 +575,6 @@ class SourceClassSearch:
 
             current_flux = given_para * self.cat_flux_weights[i_source] * np.power(self.E1 / self.E2, self.alpha)
             sweep_fluxes[i_given_para] = np.power(self.E2, 2.0) * current_flux / (4.0 * np.pi)
-        
-        
         return sweep_fluxes, ts_results
 
 
@@ -624,7 +619,9 @@ def prepare_skymap_coordinates(step_size):
 
     return cords, ra_len, dec_len
 
+
 # In[ ]:
+
 
 
 
